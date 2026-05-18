@@ -8,13 +8,6 @@ import {testConnection} from './src/config/database.js';
 import authRoutes from './src/routes/authRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
 import productRoutes from './src/routes/productRoutes.js';
-import transactionRoutes from './src/routes/transactionRoutes.js';
-import reportRoutes from './src/routes/reportRoutes.js';
-
-// Sprint 5 - Simpan Pinjam routes
-import simpananRoutes from './src/routes/simpananRoutes.js';
-import pinjamanRoutes from './src/routes/pinjamanRoutes.js';
-import angsuranRoutes from './src/routes/angsuranRoutes.js';
 
 dotenv.config();
 
@@ -26,13 +19,8 @@ app.use(
   cors({
     origin: process.env.CLIENT_URL || 'http://localhost:5173',
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Content-Range', 'X-Content-Range'],
-    maxAge: 600,
   }),
 );
-
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 app.use(cookieParser());
@@ -45,7 +33,6 @@ app.get('/', (req, res) => {
   res.json({
     message: 'Koperasi BAGUS API',
     version: '1.0.0',
-    sprint: 'Sprint 5 - Simpan Pinjam',
     status: 'running',
   });
 });
@@ -54,13 +41,6 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
-app.use('/api/transactions', transactionRoutes);
-app.use('/api/reports', reportRoutes);
-
-// Sprint 5 - Simpan Pinjam Routes
-app.use('/api/simpanan', simpananRoutes);
-app.use('/api/pinjaman', pinjamanRoutes);
-app.use('/api/angsuran', angsuranRoutes);
 
 // 404 handler
 app.use((req, res) => {

@@ -3,7 +3,7 @@ import {pool} from '../config/database.js';
 class Transaction {
   // Generate transaction code (TRX-001, TRX-002, etc)
   static async generateTransactionCode() {
-    const [rows] = await pool.query('SELECT kode_transaksi FROM transactions ORDER BY id DESC LIMIT 1');
+    const {rows} = await pool.query('SELECT kode_transaksi FROM transactions ORDER BY id DESC LIMIT 1');
 
     if (rows.length === 0) {
       return 'TRX-001';
@@ -17,7 +17,7 @@ class Transaction {
 
   // Get all transactions with details
   static async findAll() {
-    const [rows] = await pool.query(`
+    const {rows} = await pool.query(`
       SELECT 
         t.*,
         u.nama_lengkap as nama_kasir,
@@ -26,7 +26,7 @@ class Transaction {
       FROM transactions t
       LEFT JOIN users u ON t.kasir_id = u.id
       LEFT JOIN transaction_details td ON t.id = td.transaction_id
-      GROUP BY t.id
+      GROUP BY t.id, u.nama_lengkap
       ORDER BY t.tanggal_transaksi DESC
     `);
     return rows;
@@ -34,7 +34,7 @@ class Transaction {
 
   // Get transaction by ID with items
   static async findById(id) {
-    const [transactions] = await pool.query(
+    const {rows: transactions} = await pool.query(
       `
       SELECT 
         t.*,
@@ -42,7 +42,7 @@ class Transaction {
         u.username as username_kasir
       FROM transactions t
       LEFT JOIN users u ON t.kasir_id = u.id
-      WHERE t.id = ?
+      WHERE t.id = $1
     `,
       [id],
     );
@@ -52,7 +52,7 @@ class Transaction {
     const transaction = transactions[0];
 
     // Get transaction items
-    const [items] = await pool.query(
+    const {rows: items} = await pool.query(
       `
       SELECT 
         td.*,
@@ -61,7 +61,7 @@ class Transaction {
         p.satuan
       FROM transaction_details td
       LEFT JOIN products p ON td.product_id = p.id
-      WHERE td.transaction_id = ?
+      WHERE td.transaction_id = $1
       ORDER BY td.id
     `,
       [id],
@@ -73,39 +73,39 @@ class Transaction {
 
   // Create transaction with items (atomic operation)
   static async createWithItems(transactionData, items) {
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
 
     try {
-      await connection.beginTransaction();
+      await client.query('BEGIN');
 
       // Generate transaction code
       const kode_transaksi = await this.generateTransactionCode();
 
       // Insert transaction
-      const [result] = await connection.query(
+      const {rows} = await client.query(
         `INSERT INTO transactions 
          (kode_transaksi, tanggal_transaksi, total_harga, total_bayar, kembalian, kasir_id, nama_pelanggan, metode_pembayaran) 
-         VALUES (?, NOW(), ?, ?, ?, ?, ?, 'tunai')`,
+         VALUES ($1, NOW(), $2, $3, $4, $5, $6, 'tunai') RETURNING id`,
         [kode_transaksi, transactionData.total_harga, transactionData.total_bayar, transactionData.kembalian, transactionData.kasir_id, transactionData.nama_pelanggan || 'Umum'],
       );
 
-      const transactionId = result.insertId;
+      const transactionId = rows[0].id;
 
       // Insert each item and update stock
       for (const item of items) {
         // Insert transaction detail
-        await connection.query(
+        await client.query(
           `INSERT INTO transaction_details 
            (transaction_id, product_id, nama_produk, harga_satuan, jumlah, subtotal) 
-           VALUES (?, ?, ?, ?, ?, ?)`,
+           VALUES ($1, $2, $3, $4, $5, $6)`,
           [transactionId, item.product_id, item.nama_produk, item.harga_satuan, item.jumlah, item.subtotal],
         );
 
         // Update product stock
-        await connection.query('UPDATE products SET stok = stok - ? WHERE id = ?', [item.jumlah, item.product_id]);
+        await client.query('UPDATE products SET stok = stok - $1 WHERE id = $2', [item.jumlah, item.product_id]);
       }
 
-      await connection.commit();
+      await client.query('COMMIT');
 
       // Return transaction with code
       return {
@@ -113,16 +113,16 @@ class Transaction {
         kode_transaksi: kode_transaksi,
       };
     } catch (error) {
-      await connection.rollback();
+      await client.query('ROLLBACK');
       throw error;
     } finally {
-      connection.release();
+      client.release();
     }
   }
 
   // Get transactions by date range
   static async findByDateRange(startDate, endDate) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         t.*,
@@ -132,8 +132,8 @@ class Transaction {
       FROM transactions t
       LEFT JOIN users u ON t.kasir_id = u.id
       LEFT JOIN transaction_details td ON t.id = td.transaction_id
-      WHERE DATE(t.tanggal_transaksi) BETWEEN ? AND ?
-      GROUP BY t.id
+      WHERE t.tanggal_transaksi::date BETWEEN $1 AND $2
+      GROUP BY t.id, u.nama_lengkap
       ORDER BY t.tanggal_transaksi DESC
     `,
       [startDate, endDate],
@@ -143,7 +143,7 @@ class Transaction {
 
   // Get today's transactions
   static async findToday() {
-    const [rows] = await pool.query(`
+    const {rows} = await pool.query(`
       SELECT 
         t.*,
         u.nama_lengkap as nama_kasir,
@@ -151,8 +151,8 @@ class Transaction {
       FROM transactions t
       LEFT JOIN users u ON t.kasir_id = u.id
       LEFT JOIN transaction_details td ON t.id = td.transaction_id
-      WHERE DATE(t.tanggal_transaksi) = CURDATE()
-      GROUP BY t.id
+      WHERE t.tanggal_transaksi::date = CURRENT_DATE
+      GROUP BY t.id, u.nama_lengkap
       ORDER BY t.tanggal_transaksi DESC
     `);
     return rows;
@@ -162,9 +162,9 @@ class Transaction {
   static async getStats(startDate = null, endDate = null) {
     let query = `
       SELECT 
-        COUNT(*) as total_transactions,
-        COALESCE(SUM(total_harga), 0) as total_sales,
-        COALESCE(AVG(total_harga), 0) as average_sale,
+        COUNT(DISTINCT t.id) as total_transactions,
+        COALESCE(SUM(t.total_harga), 0) as total_sales,
+        COALESCE(AVG(t.total_harga), 0) as average_sale,
         COALESCE(SUM(td.jumlah), 0) as total_items_sold
       FROM transactions t
       LEFT JOIN transaction_details td ON t.id = td.transaction_id
@@ -173,25 +173,25 @@ class Transaction {
     const params = [];
 
     if (startDate && endDate) {
-      query += ' WHERE DATE(t.tanggal_transaksi) BETWEEN ? AND ?';
+      query += ' WHERE t.tanggal_transaksi::date BETWEEN $1 AND $2';
       params.push(startDate, endDate);
     }
 
-    const [rows] = await pool.query(query, params);
+    const {rows} = await pool.query(query, params);
     return rows[0];
   }
 
   // Get daily sales summary
   static async getDailySales(days = 7) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
-        DATE(tanggal_transaksi) as date,
+        tanggal_transaksi::date as date,
         COUNT(*) as transaction_count,
         SUM(total_harga) as total_sales
       FROM transactions
-      WHERE tanggal_transaksi >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-      GROUP BY DATE(tanggal_transaksi)
+      WHERE tanggal_transaksi >= CURRENT_DATE - (INTERVAL '1 day' * $1)
+      GROUP BY tanggal_transaksi::date
       ORDER BY date DESC
     `,
       [days],
@@ -201,7 +201,7 @@ class Transaction {
 
   // Search transactions
   static async search(searchTerm) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         t.*,
@@ -210,10 +210,10 @@ class Transaction {
       FROM transactions t
       LEFT JOIN users u ON t.kasir_id = u.id
       LEFT JOIN transaction_details td ON t.id = td.transaction_id
-      WHERE t.kode_transaksi LIKE ? 
-         OR t.nama_pelanggan LIKE ?
-         OR u.nama_lengkap LIKE ?
-      GROUP BY t.id
+      WHERE t.kode_transaksi LIKE $1 
+         OR t.nama_pelanggan LIKE $2
+         OR u.nama_lengkap LIKE $3
+      GROUP BY t.id, u.nama_lengkap
       ORDER BY t.tanggal_transaksi DESC
     `,
       [`%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`],

@@ -39,58 +39,37 @@ export const getTransactionById = async (req, res) => {
 // @access  Private (Admin, SuperAdmin)
 export const createTransaction = async (req, res) => {
   try {
-    console.log('\n=== CREATE TRANSACTION ===');
-    console.log('Request body:', JSON.stringify(req.body, null, 2));
-
     const {nama_pelanggan, items, total_harga, total_bayar, kembalian} = req.body;
-
-    console.log('1. Validation starting...');
 
     // Validation
     if (!items || items.length === 0) {
-      console.log('❌ Error: Keranjang kosong');
       return errorResponse(res, 400, 'Keranjang belanja kosong');
     }
 
     if (!total_harga || !total_bayar) {
-      console.log('❌ Error: Total harga atau bayar kosong');
       return errorResponse(res, 400, 'Total harga dan total bayar harus diisi');
     }
 
     if (parseFloat(total_bayar) < parseFloat(total_harga)) {
-      console.log('❌ Error: Uang bayar kurang');
       return errorResponse(res, 400, 'Uang bayar kurang');
     }
 
-    console.log('✅ Basic validation passed');
-    console.log('2. Validating stock for', items.length, 'items...');
-
     // Validate stock availability for each item
     for (const item of items) {
-      console.log(`  - Checking product ID: ${item.product_id}`);
-
       const product = await Product.findById(item.product_id);
 
       if (!product) {
-        console.log(`  ❌ Product ${item.product_id} not found`);
         return errorResponse(res, 404, `Produk ${item.nama_produk} tidak ditemukan`);
       }
 
-      console.log(`  ✅ Product found: ${product.nama_produk}, Stock: ${product.stok}, Needed: ${item.jumlah}`);
-
       if (product.stok < item.jumlah) {
-        console.log(`  ❌ Stock insufficient`);
         return errorResponse(res, 400, `Stok ${product.nama_produk} tidak mencukupi. Stok tersedia: ${product.stok}`);
       }
 
       if (!product.is_active) {
-        console.log(`  ❌ Product not active`);
         return errorResponse(res, 400, `Produk ${product.nama_produk} tidak aktif`);
       }
     }
-
-    console.log('✅ All stock validation passed');
-    console.log('3. Creating transaction...');
 
     // Create transaction
     const result = await Transaction.createWithItems(
@@ -104,23 +83,12 @@ export const createTransaction = async (req, res) => {
       items,
     );
 
-    console.log('✅ Transaction created with ID:', result.id);
-    console.log('✅ Transaction code:', result.kode_transaksi);
-    console.log('4. Fetching created transaction...');
-
     // Get created transaction
     const transaction = await Transaction.findById(result.id);
 
-    console.log('✅ Transaction fetched successfully');
-    console.log('=== END CREATE TRANSACTION ===\n');
-
     return successResponse(res, 201, 'Transaksi berhasil dibuat', transaction);
   } catch (error) {
-    console.error('\n❌ CREATE TRANSACTION ERROR:');
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    console.error('=== END ERROR ===\n');
-
+    console.error('Create transaction error:', error);
     return errorResponse(res, 500, 'Terjadi kesalahan saat membuat transaksi');
   }
 };
