@@ -57,7 +57,14 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+// Jangan jalankan app.listen saat di-deploy di Vercel
+// Vercel akan menghandle servernya secara otomatis
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+}
+
+// WAJIB: Export app agar bisa dibaca oleh Vercel
+export default app;
