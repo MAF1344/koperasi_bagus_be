@@ -243,3 +243,78 @@ export const changePassword = async (req, res) => {
     return errorResponse(res, 500, 'Terjadi kesalahan saat mengubah password');
   }
 };
+
+// @desc    Forgot password - Generate reset token
+// @route   POST /api/auth/forgot-password
+// @access  Public
+export const forgotPassword = async (req, res) => {
+  try {
+    const {email} = req.body;
+
+    if (!email) {
+      return errorResponse(res, 400, 'Email harus diisi');
+    }
+
+    const user = await User.findByEmail(email);
+    if (!user) {
+      return errorResponse(res, 404, 'User dengan email tersebut tidak ditemukan');
+    }
+
+    // Generate 6-digit random token code
+    const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
+    const expire = new Date();
+    expire.setHours(expire.getHours() + 1); // 1 hour expiry
+
+    // Save to database
+    await User.updateResetToken(user.id, resetToken, expire);
+
+    // Return response with resetToken so frontend can display it in demo mode
+    return successResponse(res, 200, 'Token reset password berhasil dibuat', {
+      resetToken,
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return errorResponse(res, 500, 'Terjadi kesalahan saat membuat token reset password');
+  }
+};
+
+// @desc    Reset password
+// @route   POST /api/auth/reset-password
+// @access  Public
+export const resetPassword = async (req, res) => {
+  try {
+    const {token, newPassword, confirmPassword} = req.body;
+
+    if (!token || !newPassword || !confirmPassword) {
+      return errorResponse(res, 400, 'Semua field harus diisi');
+    }
+
+    if (newPassword !== confirmPassword) {
+      return errorResponse(res, 400, 'Password dan konfirmasi password tidak cocok');
+    }
+
+    if (newPassword.length < 6) {
+      return errorResponse(res, 400, 'Password minimal 6 karakter');
+    }
+
+    // Find user by token and verify not expired
+    const user = await User.findByResetToken(token);
+    if (!user) {
+      return errorResponse(res, 400, 'Token tidak valid atau sudah kadaluarsa');
+    }
+
+    // Hash new password
+    const hashedPassword = await hashPassword(newPassword);
+
+    // Update password
+    await User.updatePassword(user.id, hashedPassword);
+
+    // Clear reset token
+    await User.updateResetToken(user.id, null, null);
+
+    return successResponse(res, 200, 'Password berhasil direset. Silakan login kembali.');
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return errorResponse(res, 500, 'Terjadi kesalahan saat mereset password');
+  }
+};

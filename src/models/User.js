@@ -71,6 +71,24 @@ class User {
     return result.rowCount;
   }
 
+  // Update reset password token
+  static async updateResetToken(id, token, expire) {
+    const result = await pool.query(
+      'UPDATE users SET reset_password_token = $1, reset_password_expire = $2 WHERE id = $3',
+      [token, expire, id]
+    );
+    return result.rowCount;
+  }
+
+  // Find user by reset token
+  static async findByResetToken(token) {
+    const {rows} = await pool.query(
+      'SELECT * FROM users WHERE reset_password_token = $1 AND reset_password_expire > NOW()',
+      [token]
+    );
+    return rows[0];
+  }
+
   // Delete user
   static async delete(id) {
     const result = await pool.query('DELETE FROM users WHERE id = $1', [id]);

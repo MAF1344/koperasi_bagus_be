@@ -7,7 +7,7 @@ const Pinjaman = {
   |--------------------------------------------------------------------------
   */
   generateKodePinjaman: async () => {
-    const [rows] = await pool.query(`
+    const {rows} = await pool.query(`
       SELECT kode_pinjaman 
       FROM pinjaman 
       ORDER BY id DESC 
@@ -41,16 +41,17 @@ const Pinjaman = {
     const total_pinjaman = parseFloat(jumlah_pinjaman) + jumlah_bunga;
     const angsuran_perbulan = total_pinjaman / parseInt(tenor_bulan);
 
-    const tanggal_pinjaman = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const tanggal_pinjaman = new Date();
 
-    const [result] = await pool.query(
+    const {rows} = await pool.query(
       `
     INSERT INTO pinjaman (
       kode_pinjaman, user_id, jumlah_pinjaman, 
       bunga_persen, total_pinjaman, tenor_bulan, angsuran_perbulan,
       sisa_pinjaman, tanggal_pinjaman, status, keterangan
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10)
+    RETURNING id
     `,
       [
         kode_pinjaman,
@@ -67,7 +68,7 @@ const Pinjaman = {
     );
 
     return {
-      id: result.insertId,
+      id: rows[0].id,
       kode_pinjaman,
     };
   },
@@ -78,7 +79,7 @@ const Pinjaman = {
   |--------------------------------------------------------------------------
   */
   findAll: async () => {
-    const [rows] = await pool.query(`
+    const {rows} = await pool.query(`
       SELECT 
         p.*,
         u.nama_lengkap AS nama_peminjam,
@@ -100,7 +101,7 @@ const Pinjaman = {
   |--------------------------------------------------------------------------
   */
   findById: async (id) => {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         p.*,
@@ -112,7 +113,7 @@ const Pinjaman = {
       FROM pinjaman p
       JOIN users u ON p.user_id = u.id
       LEFT JOIN users a ON p.approved_by = a.id
-      WHERE p.id = ?
+      WHERE p.id = $1
       `,
       [id],
     );
@@ -126,14 +127,14 @@ const Pinjaman = {
   |--------------------------------------------------------------------------
   */
   findByUser: async (userId) => {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         p.*,
         a.nama_lengkap AS approved_by_name
       FROM pinjaman p
       LEFT JOIN users a ON p.approved_by = a.id
-      WHERE p.user_id = ?
+      WHERE p.user_id = $1
       ORDER BY p.created_at DESC
       `,
       [userId],
@@ -148,7 +149,7 @@ const Pinjaman = {
   |--------------------------------------------------------------------------
   */
   findByStatus: async (status) => {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         p.*,
@@ -158,7 +159,7 @@ const Pinjaman = {
       FROM pinjaman p
       JOIN users u ON p.user_id = u.id
       LEFT JOIN users a ON p.approved_by = a.id
-      WHERE p.status = ?
+      WHERE p.status = $1
       ORDER BY p.created_at DESC
       `,
       [status],
@@ -173,7 +174,7 @@ const Pinjaman = {
   |--------------------------------------------------------------------------
   */
   findByUserAndStatus: async (userId, status) => {
-    const [rows] = await pool.query(`SELECT * FROM pinjaman WHERE user_id = ? AND status = ?`, [userId, status]);
+    const {rows} = await pool.query(`SELECT * FROM pinjaman WHERE user_id = $1 AND status = $2`, [userId, status]);
     return rows;
   },
 
@@ -185,20 +186,20 @@ const Pinjaman = {
   approve: async (id, approvedBy, keterangan = null) => {
     const approved_at = new Date();
 
-    const [result] = await pool.query(
+    const result = await pool.query(
       `
       UPDATE pinjaman
       SET 
         status = 'approved',
-        approved_by = ?,
-        approved_at = ?,
-        keterangan = ?
-      WHERE id = ?
+        approved_by = $1,
+        approved_at = $2,
+        keterangan = $3
+      WHERE id = $4
     `,
       [approvedBy, approved_at, keterangan, id],
     );
 
-    return result.affectedRows;
+    return result.rowCount;
   },
 
   /*
@@ -209,20 +210,20 @@ const Pinjaman = {
   reject: async (id, approvedBy, keterangan = null) => {
     const approved_at = new Date();
 
-    const [result] = await pool.query(
+    const result = await pool.query(
       `
       UPDATE pinjaman
       SET 
         status = 'rejected',
-        approved_by = ?,
-        approved_at = ?,
-        keterangan = ?
-      WHERE id = ?
+        approved_by = $1,
+        approved_at = $2,
+        keterangan = $3
+      WHERE id = $4
     `,
       [approvedBy, approved_at, keterangan, id],
     );
 
-    return result.affectedRows;
+    return result.rowCount;
   },
 
   /*
@@ -231,8 +232,8 @@ const Pinjaman = {
   |--------------------------------------------------------------------------
   */
   markAsLunas: async (id) => {
-    const [result] = await pool.query(`UPDATE pinjaman SET status = 'lunas' WHERE id = ?`, [id]);
-    return result.affectedRows;
+    const result = await pool.query(`UPDATE pinjaman SET status = 'lunas' WHERE id = $1`, [id]);
+    return result.rowCount;
   },
 
   /*
@@ -241,19 +242,19 @@ const Pinjaman = {
   |--------------------------------------------------------------------------
   */
   getStats: async () => {
-    const [stats] = await pool.query(`
+    const {rows} = await pool.query(`
       SELECT 
         COUNT(*) AS total_pinjaman,
-        SUM(status = 'pending') AS pending,
-        SUM(status = 'approved') AS approved,
-        SUM(status = 'rejected') AS rejected,
-        SUM(status = 'lunas') AS lunas,
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
+        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+        SUM(CASE WHEN status = 'lunas' THEN 1 ELSE 0 END) AS lunas,
         SUM(CASE WHEN status = 'approved' THEN jumlah_pinjaman ELSE 0 END) AS total_approved_amount,
         SUM(CASE WHEN status = 'lunas' THEN jumlah_pinjaman ELSE 0 END) AS total_lunas_amount
       FROM pinjaman
     `);
 
-    return stats[0];
+    return rows[0];
   },
 
   /*
@@ -262,16 +263,16 @@ const Pinjaman = {
   |--------------------------------------------------------------------------
   */
   calculateRemainingBalance: async (pinjamanId) => {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         p.total_pinjaman,
-        COALESCE(SUM(a.jumlah_bayar), 0) AS total_dibayar
+        COALESCE(SUM(a.jumlah_angsuran), 0) AS total_dibayar
       FROM pinjaman p
-      LEFT JOIN angsuran a 
+      LEFT JOIN angsuran_pinjaman a 
         ON p.id = a.pinjaman_id 
-       AND a.status = 'lunas'
-      WHERE p.id = ?
+       AND a.status = 'sudah_bayar'
+      WHERE p.id = $1
       GROUP BY p.id
       `,
       [pinjamanId],
@@ -294,8 +295,8 @@ const Pinjaman = {
   |--------------------------------------------------------------------------
   */
   delete: async (id) => {
-    const [result] = await pool.query(`DELETE FROM pinjaman WHERE id = ? AND status = 'pending'`, [id]);
-    return result.affectedRows;
+    const result = await pool.query(`DELETE FROM pinjaman WHERE id = $1 AND status = 'pending'`, [id]);
+    return result.rowCount;
   },
 };
 

@@ -10,16 +10,17 @@ class Angsuran {
   static async create(data) {
     const {pinjaman_id, angsuran_ke, jumlah_angsuran, tanggal_jatuh_tempo, status, denda = 0, keterangan = null} = data;
 
-    const [result] = await pool.query(
+    const {rows} = await pool.query(
       `
       INSERT INTO angsuran_pinjaman 
         (pinjaman_id, angsuran_ke, jumlah_angsuran, tanggal_jatuh_tempo, status, denda, keterangan)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id
       `,
       [pinjaman_id, angsuran_ke, jumlah_angsuran, tanggal_jatuh_tempo, status, denda, keterangan],
     );
 
-    return result.insertId;
+    return rows[0].id;
   }
 
   /**
@@ -85,7 +86,7 @@ class Angsuran {
         const jatuhTempo = new Date(startDate);
         jatuhTempo.setMonth(jatuhTempo.getMonth() + angsuranKe);
 
-        // Format tanggal ke YYYY-MM-DD (MySQL date format)
+        // Format tanggal ke YYYY-MM-DD
         const tahun = jatuhTempo.getFullYear();
         const bulan = String(jatuhTempo.getMonth() + 1).padStart(2, '0');
         const tanggal = String(jatuhTempo.getDate()).padStart(2, '0');
@@ -104,18 +105,28 @@ class Angsuran {
 
       console.log(`[Angsuran] Creating ${schedules.length} schedules for pinjaman ID: ${pinjamanId}`);
 
-      // 7. Insert ke database dalam satu query batch
+      // 7. Insert ke database dalam satu transaction (batch insert di pg)
       if (schedules.length > 0) {
-        const [result] = await pool.query(
-          `
-        INSERT INTO angsuran_pinjaman 
-          (pinjaman_id, angsuran_ke, jumlah_angsuran, tanggal_jatuh_tempo, status, denda, keterangan)
-        VALUES ?
-        `,
-          [schedules],
-        );
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          for (const schedule of schedules) {
+            await client.query(
+              `INSERT INTO angsuran_pinjaman 
+                (pinjaman_id, angsuran_ke, jumlah_angsuran, tanggal_jatuh_tempo, status, denda, keterangan)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              schedule
+            );
+          }
+          await client.query('COMMIT');
+        } catch (err) {
+          await client.query('ROLLBACK');
+          throw err;
+        } finally {
+          client.release();
+        }
 
-        console.log(`[Angsuran] Successfully created ${result.affectedRows} schedules`);
+        console.log(`[Angsuran] Successfully created ${schedules.length} schedules`);
 
         // 8. Return informasi lengkap
         return {
@@ -142,7 +153,7 @@ class Angsuran {
    * ================================
    */
   static async findByPinjaman(pinjamanId) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
     SELECT 
       a.*,
@@ -150,7 +161,7 @@ class Angsuran {
       p.tenor_bulan as total_angsuran
     FROM angsuran_pinjaman a
     JOIN pinjaman p ON a.pinjaman_id = p.id
-    WHERE a.pinjaman_id = ?
+    WHERE a.pinjaman_id = $1
     ORDER BY a.angsuran_ke ASC
     `,
       [pinjamanId],
@@ -169,7 +180,7 @@ class Angsuran {
    * ================================
    */
   static async findById(id) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
     SELECT 
       a.*,
@@ -181,7 +192,7 @@ class Angsuran {
     FROM angsuran_pinjaman a
     JOIN pinjaman p ON a.pinjaman_id = p.id
     JOIN users u ON p.user_id = u.id
-    WHERE a.id = ?
+    WHERE a.id = $1
     `,
       [id],
     );
@@ -205,7 +216,7 @@ class Angsuran {
    * ================================
    */
   static async getSummaryByPinjaman(pinjamanId) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
     SELECT 
       COUNT(*) AS total_angsuran,
@@ -215,7 +226,7 @@ class Angsuran {
       SUM(CASE WHEN status = 'belum_bayar' THEN jumlah_angsuran ELSE 0 END) AS sisa_pembayaran,
       SUM(denda) AS total_denda
     FROM angsuran_pinjaman
-    WHERE pinjaman_id = ?
+    WHERE pinjaman_id = $1
     `,
       [pinjamanId],
     );
@@ -244,19 +255,19 @@ class Angsuran {
     const {tanggal_bayar, status, keterangan, created_by} = paymentData;
 
     // Update angsuran dengan data pembayaran
-    const [result] = await pool.query(
+    const result = await pool.query(
       `
     UPDATE angsuran_pinjaman
-    SET tanggal_angsuran = ?,
-        status = ?,
-        keterangan = ?,
-        created_by = ?
-    WHERE id = ? AND status = 'belum_bayar'
+    SET tanggal_angsuran = $1,
+        status = $2,
+        keterangan = $3,
+        created_by = $4
+    WHERE id = $5 AND status = 'belum_bayar'
     `,
       [tanggal_bayar, status, keterangan, created_by, angsuranId],
     );
 
-    return result.affectedRows > 0;
+    return result.rowCount > 0;
   }
 
   /**
@@ -265,18 +276,19 @@ class Angsuran {
    * ================================
    */
   static async checkAndUpdatePinjamanStatus(pinjamanId) {
-    const [[result]] = await pool.query(
+    const {rows} = await pool.query(
       `
     SELECT 
       COUNT(*) AS total,
       SUM(CASE WHEN status IN ('sudah_bayar', 'terlambat') THEN 1 ELSE 0 END) AS sudah_dibayar
     FROM angsuran_pinjaman
-    WHERE pinjaman_id = ?
+    WHERE pinjaman_id = $1
     `,
       [pinjamanId],
     );
 
-    if (result.total === result.sudah_dibayar) {
+    const result = rows[0];
+    if (parseInt(result.total) === parseInt(result.sudah_dibayar)) {
       await Pinjaman.markAsLunas(pinjamanId);
       return true;
     }
@@ -291,7 +303,7 @@ class Angsuran {
   static async getOverdue() {
     const today = new Date().toISOString().split('T')[0];
 
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         a.*,
@@ -302,7 +314,7 @@ class Angsuran {
       JOIN pinjaman p ON a.pinjaman_id = p.id
       JOIN users u ON p.user_id = u.id
       WHERE a.status = 'belum_bayar'
-        AND a.tanggal_jatuh_tempo < ?
+        AND a.tanggal_jatuh_tempo < $1
       ORDER BY a.tanggal_jatuh_tempo ASC
       `,
       [today],
@@ -319,7 +331,7 @@ class Angsuran {
   static async findOverdueByUser(userId) {
     const today = new Date().toISOString().split('T')[0];
 
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         a.*,
@@ -329,9 +341,9 @@ class Angsuran {
       FROM angsuran_pinjaman a
       JOIN pinjaman p ON a.pinjaman_id = p.id
       JOIN users u ON p.user_id = u.id
-      WHERE p.user_id = ?
+      WHERE p.user_id = $1
         AND a.status = 'belum_bayar'
-        AND a.tanggal_jatuh_tempo < ?
+        AND a.tanggal_jatuh_tempo < $2
       ORDER BY a.tanggal_jatuh_tempo ASC
       `,
       [userId, today],
@@ -351,7 +363,7 @@ class Angsuran {
     futureDate.setDate(futureDate.getDate() + days);
     const futureDateStr = futureDate.toISOString().split('T')[0];
 
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         a.*,
@@ -362,7 +374,7 @@ class Angsuran {
       JOIN pinjaman p ON a.pinjaman_id = p.id
       JOIN users u ON p.user_id = u.id
       WHERE a.status = 'belum_bayar'
-        AND a.tanggal_jatuh_tempo BETWEEN ? AND ?
+        AND a.tanggal_jatuh_tempo BETWEEN $1 AND $2
       ORDER BY a.tanggal_jatuh_tempo ASC
       `,
       [today, futureDateStr],
@@ -382,7 +394,7 @@ class Angsuran {
     futureDate.setDate(futureDate.getDate() + days);
     const futureDateStr = futureDate.toISOString().split('T')[0];
 
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         a.*,
@@ -392,9 +404,9 @@ class Angsuran {
       FROM angsuran_pinjaman a
       JOIN pinjaman p ON a.pinjaman_id = p.id
       JOIN users u ON p.user_id = u.id
-      WHERE p.user_id = ?
+      WHERE p.user_id = $1
         AND a.status = 'belum_bayar'
-        AND a.tanggal_jatuh_tempo BETWEEN ? AND ?
+        AND a.tanggal_jatuh_tempo BETWEEN $2 AND $3
       ORDER BY a.tanggal_jatuh_tempo ASC
       `,
       [userId, today, futureDateStr],
@@ -409,7 +421,7 @@ class Angsuran {
    * ================================
    */
   static async getStats() {
-    const [[stats]] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         COUNT(*) AS total_angsuran,
@@ -423,7 +435,7 @@ class Angsuran {
       `,
     );
 
-    return stats;
+    return rows[0];
   }
 
   /**
@@ -432,7 +444,7 @@ class Angsuran {
    * ================================
    */
   static async getStatsByUser(userId) {
-    const [[stats]] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         COUNT(*) AS total_angsuran,
@@ -444,12 +456,12 @@ class Angsuran {
         SUM(a.denda) AS total_denda
       FROM angsuran_pinjaman a
       JOIN pinjaman p ON a.pinjaman_id = p.id
-      WHERE p.user_id = ?
+      WHERE p.user_id = $1
       `,
       [userId],
     );
 
-    return stats;
+    return rows[0];
   }
 
   /**
@@ -458,16 +470,16 @@ class Angsuran {
    * ================================
    */
   static async updateKeterangan(id, keterangan) {
-    const [result] = await pool.query(
+    const result = await pool.query(
       `
       UPDATE angsuran_pinjaman
-      SET keterangan = ?
-      WHERE id = ?
+      SET keterangan = $1
+      WHERE id = $2
       `,
       [keterangan, id],
     );
 
-    return result.affectedRows;
+    return result.rowCount;
   }
 
   /**
@@ -477,33 +489,36 @@ class Angsuran {
    */
   static async updatePinjamanSisa(pinjamanId) {
     // Hitung total yang sudah dibayar
-    const [[result]] = await pool.query(
+    const {rows} = await pool.query(
       `
     SELECT 
       COALESCE(SUM(jumlah_angsuran), 0) AS total_terbayar
     FROM angsuran_pinjaman
-    WHERE pinjaman_id = ? 
+    WHERE pinjaman_id = $1
       AND status IN ('sudah_bayar', 'terlambat')
     `,
       [pinjamanId],
     );
 
+    const result = rows[0];
+
     // Update sisa pinjaman
     await pool.query(
       `
     UPDATE pinjaman
-    SET sisa_pinjaman = total_pinjaman - ?
-    WHERE id = ?
+    SET sisa_pinjaman = total_pinjaman - $1
+    WHERE id = $2
     `,
       [result.total_terbayar, pinjamanId],
     );
 
     // Cek apakah sudah lunas
-    const [[pinjaman]] = await pool.query(`SELECT total_pinjaman, sisa_pinjaman, status FROM pinjaman WHERE id = ?`, [pinjamanId]);
+    const {rows: pinjamanRows} = await pool.query(`SELECT total_pinjaman, sisa_pinjaman, status FROM pinjaman WHERE id = $1`, [pinjamanId]);
+    const pinjaman = pinjamanRows[0];
 
     // ⚠️ Hanya update status jika belum lunas
     if (pinjaman.sisa_pinjaman <= 0 && pinjaman.status !== 'lunas') {
-      await pool.query(`UPDATE pinjaman SET status = 'lunas' WHERE id = ?`, [pinjamanId]);
+      await pool.query(`UPDATE pinjaman SET status = 'lunas' WHERE id = $1`, [pinjamanId]);
       return true; // Sudah lunas
     }
     return false; // Belum lunas
@@ -515,16 +530,16 @@ class Angsuran {
    * ================================
    */
   static async getTotalAngsuran(pinjamanId) {
-    const [[result]] = await pool.query(
+    const {rows} = await pool.query(
       `
     SELECT COUNT(*) as total
     FROM angsuran_pinjaman
-    WHERE pinjaman_id = ?
+    WHERE pinjaman_id = $1
     `,
       [pinjamanId],
     );
 
-    return result.total;
+    return parseInt(rows[0].total);
   }
 }
 

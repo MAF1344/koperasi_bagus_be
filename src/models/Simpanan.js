@@ -5,22 +5,22 @@ class Simpanan {
   static async create(simpananData) {
     const {user_id, jenis_simpanan, jumlah, tanggal_simpanan, keterangan} = simpananData;
 
-    const [result] = await pool.query(
+    const {rows} = await pool.query(
       `INSERT INTO simpanan 
         (user_id, jenis_simpanan, jumlah, tanggal_simpanan, keterangan) 
-       VALUES (?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
       [user_id, jenis_simpanan, jumlah, tanggal_simpanan, keterangan],
     );
 
-    return result.insertId;
+    return rows[0].id;
   }
 
   // Get all simpanan with user info
   static async findAll() {
-    const [rows] = await pool.query(`
+    const {rows} = await pool.query(`
       SELECT 
         s.*,
-        u.nama_lengkap AS nama_anggota,
+        u.nama_lengkap,
         u.username,
         u.role
       FROM simpanan s
@@ -33,16 +33,16 @@ class Simpanan {
 
   // Get simpanan by ID
   static async findById(id) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         s.*,
-        u.nama_lengkap AS nama_anggota,
+        u.nama_lengkap,
         u.username,
         u.role
       FROM simpanan s
       JOIN users u ON s.user_id = u.id
-      WHERE s.id = ?
+      WHERE s.id = $1
     `,
       [id],
     );
@@ -52,12 +52,13 @@ class Simpanan {
 
   // Get simpanan by user
   static async findByUser(userId) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
-      SELECT *
-      FROM simpanan
-      WHERE user_id = ?
-      ORDER BY created_at DESC
+      SELECT s.*, u.nama_lengkap, u.username
+      FROM simpanan s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.user_id = $1
+      ORDER BY s.created_at DESC
     `,
       [userId],
     );
@@ -67,15 +68,15 @@ class Simpanan {
 
   // Get simpanan by jenis
   static async findByJenis(jenis) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         s.*,
-        u.nama_lengkap AS nama_anggota,
+        u.nama_lengkap,
         u.username
       FROM simpanan s
       JOIN users u ON s.user_id = u.id
-      WHERE s.jenis_simpanan = ?
+      WHERE s.jenis_simpanan = $1
       ORDER BY s.created_at DESC
     `,
       [jenis],
@@ -86,13 +87,13 @@ class Simpanan {
 
   // Calculate total simpanan per user
   static async calculateTotalByUser(userId) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         jenis_simpanan,
         SUM(jumlah) AS total
       FROM simpanan
-      WHERE user_id = ?
+      WHERE user_id = $1
       GROUP BY jenis_simpanan
     `,
       [userId],
@@ -115,7 +116,7 @@ class Simpanan {
 
   // Calculate all simpanan totals
   static async calculateTotalAll() {
-    const [rows] = await pool.query(`
+    const {rows} = await pool.query(`
       SELECT 
         jenis_simpanan,
         SUM(jumlah) AS total,
@@ -146,7 +147,7 @@ class Simpanan {
 
   // Statistics global
   static async getStats() {
-    const [stats] = await pool.query(`
+    const {rows} = await pool.query(`
       SELECT 
         COUNT(DISTINCT user_id) AS total_anggota,
         COUNT(*) AS total_transaksi,
@@ -157,12 +158,12 @@ class Simpanan {
       FROM simpanan
     `);
 
-    return stats[0];
+    return rows[0];
   }
 
   // Statistics per user
   static async getStatsByUser(userId) {
-    const [stats] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         COALESCE(SUM(jumlah), 0) AS total_simpanan,
@@ -171,21 +172,21 @@ class Simpanan {
         COALESCE(SUM(CASE WHEN jenis_simpanan = 'sukarela' THEN jumlah END), 0) AS total_sukarela,
         COUNT(*) AS total_transaksi
       FROM simpanan
-      WHERE user_id = ?
+      WHERE user_id = $1
     `,
       [userId],
     );
 
-    return stats[0];
+    return rows[0];
   }
 
   // Find by user and type
   static async findByUserAndType(userId, jenis) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT *
       FROM simpanan
-      WHERE user_id = ? AND jenis_simpanan = ?
+      WHERE user_id = $1 AND jenis_simpanan = $2
     `,
       [userId, jenis],
     );
@@ -195,11 +196,11 @@ class Simpanan {
 
   // Check if user has pokok
   static async hasPokok(userId) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT id 
       FROM simpanan 
-      WHERE user_id = ? AND jenis_simpanan = 'pokok'
+      WHERE user_id = $1 AND jenis_simpanan = 'pokok'
       LIMIT 1
     `,
       [userId],
@@ -210,22 +211,22 @@ class Simpanan {
 
   // Delete simpanan
   static async delete(id) {
-    const [result] = await pool.query(`DELETE FROM simpanan WHERE id = ?`, [id]);
-    return result.affectedRows;
+    const result = await pool.query(`DELETE FROM simpanan WHERE id = $1`, [id]);
+    return result.rowCount;
   }
 
   // Get recent simpanan
   static async getRecent(limit = 10) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         s.*,
-        u.nama_lengkap AS nama_anggota,
+        u.nama_lengkap,
         u.username
       FROM simpanan s
       JOIN users u ON s.user_id = u.id
       ORDER BY s.created_at DESC
-      LIMIT ?
+      LIMIT $1
     `,
       [limit],
     );

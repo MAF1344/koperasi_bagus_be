@@ -24,6 +24,12 @@ const testConnection = async () => {
   try {
     const client = await pool.connect();
     console.log('✅ Database connected successfully (PostgreSQL)');
+    
+    // Migrations
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_password_token VARCHAR(255)');
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_password_expire TIMESTAMP WITH TIME ZONE');
+    console.log('✅ Database migration: reset password columns verified');
+    
     client.release();
   } catch (error) {
     console.error('❌ Database connection failed:', error.message);

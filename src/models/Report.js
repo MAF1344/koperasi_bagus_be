@@ -3,7 +3,7 @@ import {pool} from '../config/database.js';
 class Report {
   // Get sales statistics for a date range
   static async getSalesStats(startDate, endDate) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         COUNT(*) as total_transactions,
@@ -12,7 +12,7 @@ class Report {
         COALESCE(SUM(td.jumlah), 0) as total_items_sold
       FROM transactions t
       LEFT JOIN transaction_details td ON t.id = td.transaction_id
-      WHERE DATE(t.tanggal_transaksi) BETWEEN ? AND ?
+      WHERE t.tanggal_transaksi::date BETWEEN $1 AND $2
     `,
       [startDate, endDate],
     );
@@ -22,7 +22,7 @@ class Report {
 
   // Get profit calculation (revenue - cost)
   static async getProfitStats(startDate, endDate) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         COALESCE(SUM(td.subtotal), 0) as total_revenue,
@@ -31,7 +31,7 @@ class Report {
       FROM transaction_details td
       JOIN transactions t ON td.transaction_id = t.id
       JOIN products p ON td.product_id = p.id
-      WHERE DATE(t.tanggal_transaksi) BETWEEN ? AND ?
+      WHERE t.tanggal_transaksi::date BETWEEN $1 AND $2
     `,
       [startDate, endDate],
     );
@@ -41,15 +41,15 @@ class Report {
 
   // Get daily sales trend
   static async getDailySalesTrend(days = 7) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
-        DATE(tanggal_transaksi) as date,
+        tanggal_transaksi::date as date,
         COUNT(*) as transaction_count,
         COALESCE(SUM(total_harga), 0) as total_sales
       FROM transactions
-      WHERE tanggal_transaksi >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-      GROUP BY DATE(tanggal_transaksi)
+      WHERE tanggal_transaksi >= CURRENT_DATE - (INTERVAL '1 day' * $1)
+      GROUP BY tanggal_transaksi::date
       ORDER BY date ASC
     `,
       [days],
@@ -60,14 +60,14 @@ class Report {
 
   // Get monthly sales trend (last 12 months)
   static async getMonthlySalesTrend() {
-    const [rows] = await pool.query(`
+    const {rows} = await pool.query(`
       SELECT 
-        DATE_FORMAT(tanggal_transaksi, '%Y-%m') as month,
+        to_char(tanggal_transaksi, 'YYYY-MM') as month,
         COUNT(*) as transaction_count,
         COALESCE(SUM(total_harga), 0) as total_sales
       FROM transactions
-      WHERE tanggal_transaksi >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-      GROUP BY DATE_FORMAT(tanggal_transaksi, '%Y-%m')
+      WHERE tanggal_transaksi >= CURRENT_DATE - INTERVAL '12 months'
+      GROUP BY to_char(tanggal_transaksi, 'YYYY-MM')
       ORDER BY month ASC
     `);
 
@@ -94,18 +94,18 @@ class Report {
     const params = [];
 
     if (startDate && endDate) {
-      query += ' WHERE DATE(t.tanggal_transaksi) BETWEEN ? AND ?';
+      query += ' WHERE t.tanggal_transaksi::date BETWEEN $1 AND $2';
       params.push(startDate, endDate);
     }
 
     query += `
       GROUP BY p.id, p.nama_produk, p.kategori, p.harga_jual, p.harga_beli
       ORDER BY total_sold DESC
-      LIMIT ?
+      LIMIT $${params.length + 1}
     `;
     params.push(limit);
 
-    const [rows] = await pool.query(query, params);
+    const {rows} = await pool.query(query, params);
     return rows;
   }
 
@@ -126,19 +126,19 @@ class Report {
     const params = [];
 
     if (startDate && endDate) {
-      query += ' WHERE DATE(t.tanggal_transaksi) BETWEEN ? AND ?';
+      query += ' WHERE t.tanggal_transaksi::date BETWEEN $1 AND $2';
       params.push(startDate, endDate);
     }
 
     query += ' GROUP BY p.kategori ORDER BY total_revenue DESC';
 
-    const [rows] = await pool.query(query, params);
+    const {rows} = await pool.query(query, params);
     return rows;
   }
 
   // Get low stock products
   static async getLowStockProducts(threshold = 10) {
-    const [rows] = await pool.query(
+    const {rows} = await pool.query(
       `
       SELECT 
         id,
@@ -149,7 +149,7 @@ class Report {
         harga_beli,
         harga_jual
       FROM products
-      WHERE stok < ? AND is_active = 1
+      WHERE stok < $1 AND is_active = true
       ORDER BY stok ASC
       LIMIT 10
     `,
@@ -161,15 +161,15 @@ class Report {
 
   // Get overall statistics
   static async getOverallStats() {
-    const [stats] = await pool.query(`
+    const {rows} = await pool.query(`
       SELECT 
-        (SELECT COUNT(*) FROM products WHERE is_active = 1) as total_products,
+        (SELECT COUNT(*) FROM products WHERE is_active = true) as total_products,
         (SELECT COUNT(*) FROM transactions) as total_transactions,
         (SELECT COALESCE(SUM(total_harga), 0) FROM transactions) as all_time_revenue,
-        (SELECT COUNT(*) FROM users WHERE is_active = 1) as total_active_users
+        (SELECT COUNT(*) FROM users WHERE is_active = true) as total_active_users
     `);
 
-    return stats[0];
+    return rows[0];
   }
 
   // Get product performance (best & worst)
@@ -198,13 +198,13 @@ class Report {
     const params = [];
 
     if (startDate && endDate) {
-      query += ' WHERE DATE(t.tanggal_transaksi) BETWEEN ? AND ?';
+      query += ' WHERE t.tanggal_transaksi::date BETWEEN $1 AND $2';
       params.push(startDate, endDate);
     }
 
     query += ' GROUP BY p.id, p.nama_produk, p.kategori, p.stok';
 
-    const [rows] = await pool.query(query, params);
+    const {rows} = await pool.query(query, params);
 
     // Separate into best and worst performers
     const sorted = rows.sort((a, b) => b.total_revenue - a.total_revenue);
