@@ -13,8 +13,8 @@ router.post('/', isAdmin, createPinjaman);
 // Get all pinjaman with filters (Admin & SuperAdmin)
 router.get('/', isAdmin, getAllPinjaman);
 
-// Get pinjaman statistics (Admin & SuperAdmin)
-router.get('/stats', isAdmin, getPinjamanStats);
+// Get pinjaman statistics (all authenticated users)
+router.get('/stats', getPinjamanStats);
 
 // Get pending pinjaman (SuperAdmin only)
 router.get('/pending', isSuperAdmin, getPendingPinjaman);
