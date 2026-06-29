@@ -10,8 +10,8 @@ router.use(verifyToken);
 // Create new pinjaman (Admin & SuperAdmin)
 router.post('/', isAdmin, createPinjaman);
 
-// Get all pinjaman with filters (Admin & SuperAdmin)
-router.get('/', isAdmin, getAllPinjaman);
+// Get all pinjaman with filters (all authenticated users - role-based filtering in controller)
+router.get('/', getAllPinjaman);
 
 // Get pinjaman statistics (all authenticated users)
 router.get('/stats', getPinjamanStats);
