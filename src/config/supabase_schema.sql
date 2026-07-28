@@ -1,17 +1,32 @@
 -- PostgreSQL schema for Koperasi BAGUS (development-friendly version)
--- This file is intended for fresh local database creation.
--- For structural changes, recreate the database and run this file again.
 
-CREATE TYPE role_type AS ENUM ('superadmin', 'admin', 'pengunjung');
-CREATE TYPE product_category AS ENUM ('buku', 'seragam', 'atk');
-CREATE TYPE loan_status AS ENUM ('pending', 'approved', 'rejected', 'lunas');
-CREATE TYPE installment_status AS ENUM ('belum_bayar', 'sudah_bayar', 'terlambat');
-CREATE TYPE saving_type AS ENUM ('pokok', 'wajib', 'sukarela');
-CREATE TYPE saving_status AS ENUM ('pending', 'approved', 'rejected');
-CREATE TYPE payment_method AS ENUM ('tunai', 'transfer');
-CREATE TYPE anggota_status AS ENUM ('aktif', 'nonaktif', 'baru');
-CREATE TYPE bagi_hasil_status AS ENUM ('pending', 'approved', 'released');
+-- Safety block for ENUM creation
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'role_type') THEN
+        CREATE TYPE role_type AS ENUM ('superadmin', 'admin', 'pengunjung');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'product_category') THEN
+        CREATE TYPE product_category AS ENUM ('buku', 'seragam', 'atk');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'saving_type') THEN
+        CREATE TYPE saving_type AS ENUM ('pokok', 'wajib', 'sukarela');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'saving_status') THEN
+        CREATE TYPE saving_status AS ENUM ('pending', 'approved', 'rejected');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_method') THEN
+        CREATE TYPE payment_method AS ENUM ('tunai', 'transfer');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'anggota_status') THEN
+        CREATE TYPE anggota_status AS ENUM ('aktif', 'nonaktif', 'baru');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bagi_hasil_status') THEN
+        CREATE TYPE bagi_hasil_status AS ENUM ('pending', 'approved', 'released');
+    END IF;
+END $$;
 
+-- Tables
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
@@ -44,9 +59,9 @@ CREATE TABLE IF NOT EXISTS anggota (
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Tabel Siswa mandiri (relasi ke anggota_id sudah dihapus)
 CREATE TABLE IF NOT EXISTS siswa (
     id SERIAL PRIMARY KEY,
-    anggota_id INT REFERENCES anggota(id) ON DELETE CASCADE,
     nisn VARCHAR(30) UNIQUE,
     nama_siswa VARCHAR(150) NOT NULL,
     kelas VARCHAR(50),
@@ -111,40 +126,6 @@ CREATE TABLE IF NOT EXISTS simpanan (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS pinjaman (
-    id SERIAL PRIMARY KEY,
-    kode_pinjaman VARCHAR(20) UNIQUE NOT NULL,
-    user_id INT REFERENCES users(id) ON DELETE CASCADE,
-    anggota_id INT REFERENCES anggota(id) ON DELETE SET NULL,
-    jumlah_pinjaman DECIMAL(15, 2) NOT NULL,
-    bunga_persen DECIMAL(5, 2) DEFAULT 0.00,
-    total_pinjaman DECIMAL(15, 2) NOT NULL,
-    tenor_bulan INT NOT NULL,
-    angsuran_perbulan DECIMAL(15, 2) NOT NULL,
-    sisa_pinjaman DECIMAL(15, 2) NOT NULL,
-    tanggal_pinjaman TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    tanggal_jatuh_tempo DATE,
-    status loan_status DEFAULT 'pending',
-    keterangan TEXT,
-    approved_by INT REFERENCES users(id) ON DELETE SET NULL,
-    approved_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS angsuran_pinjaman (
-    id SERIAL PRIMARY KEY,
-    pinjaman_id INT REFERENCES pinjaman(id) ON DELETE CASCADE,
-    angsuran_ke INT NOT NULL,
-    jumlah_angsuran DECIMAL(15, 2) NOT NULL,
-    tanggal_angsuran TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    tanggal_jatuh_tempo DATE,
-    status installment_status DEFAULT 'belum_bayar',
-    denda DECIMAL(15, 2) DEFAULT 0.00,
-    keterangan TEXT,
-    created_by INT REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS saldo_koperasi (
     id SERIAL PRIMARY KEY,
     periode DATE NOT NULL,
@@ -166,6 +147,7 @@ CREATE TABLE IF NOT EXISTS bagi_hasil_anggota (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Views
 CREATE OR REPLACE VIEW view_penjualan_per_kategori AS
 SELECT
     p.kategori,

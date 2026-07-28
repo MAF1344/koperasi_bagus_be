@@ -32,16 +32,20 @@ export const createSiswa = async (req, res) => {
   try {
     const {anggota_id, nisn, nama_siswa, kelas, sekolah} = req.body;
 
-    if (!anggota_id || !nama_siswa) {
-      return errorResponse(res, 400, 'Anggota dan nama siswa harus diisi');
+    if (!nama_siswa) {
+      return errorResponse(res, 400, 'Nama siswa harus diisi');
     }
 
-    const anggota = await Anggota.findById(anggota_id);
-    if (!anggota) {
-      return errorResponse(res, 404, 'Anggota tidak ditemukan');
+    let anggotaId = null;
+    if (anggota_id !== undefined && anggota_id !== null && anggota_id !== '') {
+      const anggota = await Anggota.findById(anggota_id);
+      if (!anggota) {
+        return errorResponse(res, 404, 'Anggota tidak ditemukan');
+      }
+      anggotaId = anggota_id;
     }
 
-    const id = await Siswa.create({anggota_id, nisn, nama_siswa, kelas, sekolah});
+    const id = await Siswa.create({anggota_id: anggotaId, nisn, nama_siswa, kelas, sekolah});
     const created = await Siswa.findById(id);
     return successResponse(res, 201, 'Data siswa berhasil dibuat', created);
   } catch (error) {
@@ -61,16 +65,24 @@ export const updateSiswa = async (req, res) => {
 
     const {anggota_id, nisn, nama_siswa, kelas, sekolah} = req.body;
 
-    if (!anggota_id || !nama_siswa) {
-      return errorResponse(res, 400, 'Anggota dan nama siswa harus diisi');
+    if (!nama_siswa) {
+      return errorResponse(res, 400, 'Nama siswa harus diisi');
     }
 
-    const anggota = await Anggota.findById(anggota_id);
-    if (!anggota) {
-      return errorResponse(res, 404, 'Anggota tidak ditemukan');
+    let anggotaId = existingSiswa.anggota_id || null;
+    if (req.body.hasOwnProperty('anggota_id')) {
+      if (anggota_id === null || anggota_id === '') {
+        anggotaId = null;
+      } else {
+        const anggota = await Anggota.findById(anggota_id);
+        if (!anggota) {
+          return errorResponse(res, 404, 'Anggota tidak ditemukan');
+        }
+        anggotaId = anggota_id;
+      }
     }
 
-    await Siswa.update(id, {anggota_id, nisn, nama_siswa, kelas, sekolah});
+    await Siswa.update(id, {anggota_id: anggotaId, nisn, nama_siswa, kelas, sekolah});
     const updated = await Siswa.findById(id);
     return successResponse(res, 200, 'Data siswa berhasil diperbarui', updated);
   } catch (error) {
