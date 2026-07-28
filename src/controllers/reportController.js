@@ -161,12 +161,13 @@ export const getDashboardData = async (req, res) => {
     }
 
     // Fetch all data in parallel
-    const [salesStats, profitStats, topProducts, categoryData, dailyTrend] = await Promise.all([
+    const [salesStats, profitStats, topProducts, categoryData, dailyTrend, latestSaldo] = await Promise.all([
       Report.getSalesStats(startDate, endDate),
       Report.getProfitStats(startDate, endDate),
       Report.getTopProducts(5, startDate, endDate),
       Report.getSalesByCategory(startDate, endDate),
       Report.getDailySalesTrend(period === 'today' ? 1 : 7),
+      Report.getLatestSaldoKoperasi(),
     ]);
 
     const dashboardData = {
@@ -182,6 +183,7 @@ export const getDashboardData = async (req, res) => {
       top_products: topProducts,
       category_distribution: categoryData,
       daily_trend: dailyTrend,
+      saldo_koperasi: latestSaldo,
     };
 
     return successResponse(res, 200, 'Data dashboard berhasil diambil', dashboardData);

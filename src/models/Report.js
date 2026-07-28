@@ -172,6 +172,26 @@ class Report {
     return rows[0];
   }
 
+  // Get latest cooperative balance record
+  static async getLatestSaldoKoperasi() {
+    const {rows} = await pool.query(
+      `SELECT periode, saldo_awal, pemasukan, pengeluaran, saldo_akhir, keterangan, created_at
+       FROM saldo_koperasi
+       ORDER BY periode DESC, created_at DESC
+       LIMIT 1`,
+    );
+
+    return rows[0] || {
+      periode: null,
+      saldo_awal: 0,
+      pemasukan: 0,
+      pengeluaran: 0,
+      saldo_akhir: 0,
+      keterangan: null,
+      created_at: null,
+    };
+  }
+
   // Get product performance (best & worst)
   static async getProductPerformance(startDate = null, endDate = null) {
     let query = `

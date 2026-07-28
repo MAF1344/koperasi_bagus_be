@@ -21,12 +21,14 @@ class Transaction {
       SELECT 
         t.*,
         u.nama_lengkap as nama_kasir,
+        a.nama_lengkap as nama_anggota,
         COUNT(td.id) as total_items,
         SUM(td.jumlah) as total_quantity
       FROM transactions t
       LEFT JOIN users u ON t.kasir_id = u.id
+      LEFT JOIN anggota a ON t.anggota_id = a.id
       LEFT JOIN transaction_details td ON t.id = td.transaction_id
-      GROUP BY t.id, u.nama_lengkap
+      GROUP BY t.id, u.nama_lengkap, a.nama_lengkap
       ORDER BY t.tanggal_transaksi DESC
     `);
     return rows;
@@ -39,9 +41,11 @@ class Transaction {
       SELECT 
         t.*,
         u.nama_lengkap as nama_kasir,
-        u.username as username_kasir
+        u.username as username_kasir,
+        a.nama_lengkap as nama_anggota
       FROM transactions t
       LEFT JOIN users u ON t.kasir_id = u.id
+      LEFT JOIN anggota a ON t.anggota_id = a.id
       WHERE t.id = $1
     `,
       [id],
@@ -84,9 +88,9 @@ class Transaction {
       // Insert transaction
       const {rows} = await client.query(
         `INSERT INTO transactions 
-         (kode_transaksi, tanggal_transaksi, total_harga, total_bayar, kembalian, kasir_id, nama_pelanggan, metode_pembayaran) 
-         VALUES ($1, NOW(), $2, $3, $4, $5, $6, 'tunai') RETURNING id`,
-        [kode_transaksi, transactionData.total_harga, transactionData.total_bayar, transactionData.kembalian, transactionData.kasir_id, transactionData.nama_pelanggan || 'Umum'],
+         (kode_transaksi, tanggal_transaksi, total_harga, total_bayar, kembalian, kasir_id, nama_pelanggan, metode_pembayaran, anggota_id) 
+         VALUES ($1, NOW(), $2, $3, $4, $5, $6, 'tunai', $7) RETURNING id`,
+        [kode_transaksi, transactionData.total_harga, transactionData.total_bayar, transactionData.kembalian, transactionData.kasir_id, transactionData.nama_pelanggan || 'Umum', transactionData.anggota_id || null],
       );
 
       const transactionId = rows[0].id;

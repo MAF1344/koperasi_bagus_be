@@ -9,8 +9,10 @@ import authRoutes from './src/routes/authRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
 import productRoutes from './src/routes/productRoutes.js';
 import simpananRoutes from './src/routes/simpananRoutes.js';
-import pinjamanRoutes from './src/routes/pinjamanRoutes.js';
-import angsuranRoutes from './src/routes/angsuranRoutes.js';
+import anggotaRoutes from './src/routes/anggotaRoutes.js';
+import siswaRoutes from './src/routes/siswaRoutes.js';
+// import pinjamanRoutes from './src/routes/pinjamanRoutes.js';
+// import angsuranRoutes from './src/routes/angsuranRoutes.js';
 import transactionRoutes from './src/routes/transactionRoutes.js';
 import reportRoutes from './src/routes/reportRoutes.js';
 
@@ -47,8 +49,10 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/simpanan', simpananRoutes);
-app.use('/api/pinjaman', pinjamanRoutes);
-app.use('/api/angsuran', angsuranRoutes);
+app.use('/api/anggota', anggotaRoutes);
+app.use('/api/siswa', siswaRoutes);
+// app.use('/api/pinjaman', pinjamanRoutes);
+// app.use('/api/angsuran', angsuranRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/reports', reportRoutes);
 

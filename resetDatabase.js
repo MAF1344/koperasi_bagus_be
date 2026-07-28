@@ -1,65 +1,112 @@
 // resetDatabase.js
-import mysql from 'mysql2/promise';
+// Purpose:
+// - Reset data only (truncate tables, keep schema intact)
+// - Do NOT change table structure here
+// - If you need structural changes, update the SQL schema in src/config/supabase_schema.sql
+//   and then run that SQL manually in pgAdmin / psql.
+
 import dotenv from 'dotenv';
+import { pool } from './src/config/database.js';
+import { hashPassword } from './src/utils/helpers.js';
+
 dotenv.config();
 
-// Hash bcrypt untuk password "admin123"
-const HASH_PASS = '$2b$10$N9qo8uLOickgx2ZMRZo5e.uYcQfO0Nqz3PaT78n.E6Zd9wH8d4D6a';
+// Daftar tabel yang akan di-reset.
+// Kalau struktur database berkembang (contoh menambah tabel anggota/siswa),
+// tambahkan nama tabel di sini agar script tetap bisa mereset isinya.
+const TABLES_TO_RESET = [
+  'bagi_hasil_anggota',
+  'saldo_koperasi',
+  'transaction_details',
+  'transactions',
+  'products',
+  'simpanan',
+  'angsuran_pinjaman',
+  'pinjaman',
+  'siswa',
+  'anggota',
+  'users',
+];
 
-const run = async () => {
-  const db = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASS || '',
-    database: process.env.DB_NAME,
-  });
+const DEFAULT_USERS = [
+  {
+    username: 'superadmin',
+    email: 'gugun@koperasibagus.com',
+    password: 'admin123',
+    nama_lengkap: 'Gugun Yanwar',
+    role: 'superadmin',
+  },
+  {
+    username: 'admin1',
+    email: 'yumna@koperasibagus.com',
+    password: 'admin123',
+    nama_lengkap: 'Yumna',
+    role: 'admin',
+  },
+  {
+    username: 'admin2',
+    email: 'ahmad@koperasibagus.com',
+    password: 'admin123',
+    nama_lengkap: 'Ahmad Fatoni',
+    role: 'admin',
+  },
+  {
+    username: 'pengunjung',
+    email: 'pengunjung@koperasibagus.com',
+    password: 'admin123',
+    nama_lengkap: 'Pengunjung',
+    role: 'pengunjung',
+  },
+];
 
-  console.log('🔄 Resetting database...');
+const seedDefaultUsers = async () => {
+  const inserted = [];
 
-  try {
-    await db.execute('SET FOREIGN_KEY_CHECKS = 0');
-
-    // ------------------------------
-    // DELETE ALL DATA
-    // ------------------------------
-    const tables = ['transaction_details', 'transactions', 'products', 'users'];
-
-    for (const table of tables) {
-      await db.execute('SET FOREIGN_KEY_CHECKS = 0');
-      await db.execute('TRUNCATE TABLE transaction_details');
-      await db.execute('TRUNCATE TABLE transactions');
-      await db.execute('TRUNCATE TABLE products');
-      await db.execute('TRUNCATE TABLE users');
-      await db.execute('SET FOREIGN_KEY_CHECKS = 1');
-      await db.execute(`ALTER TABLE ${table} AUTO_INCREMENT = 1`);
+  for (const user of DEFAULT_USERS) {
+    const existing = await pool.query('SELECT id FROM users WHERE username = $1', [user.username]);
+    if (existing.rowCount > 0) {
+      continue;
     }
 
-    console.log('📁 Data deleted & AUTO_INCREMENT reset.');
+    const hashedPassword = await hashPassword(user.password);
+    await pool.query(
+      `INSERT INTO users (username, email, password, nama_lengkap, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())`,
+      [user.username, user.email, hashedPassword, user.nama_lengkap, user.role],
+    );
 
-    // ------------------------------
-    // INSERT DEFAULT USERS (Seeder)
-    // ------------------------------
-    const seedQuery = `
-      INSERT INTO users 
-      (username, password, nama_lengkap, email, role, is_active, created_at, updated_at)
-      VALUES
-      ('superadmin', '${HASH_PASS}', 'Gugun Yanwar', 'gugun@koperasibagus.com', 'superadmin', 1, NOW(), NOW()),
-      ('admin1', '${HASH_PASS}', 'Yumna', 'yumna@koperasibagus.com', 'admin', 1, NOW(), NOW()),
-      ('admin2', '${HASH_PASS}', 'Ahmad Fatoni', 'ahmad@koperasibagus.com', 'admin', 1, NOW(), NOW()),
-      ('pengunjung', '${HASH_PASS}', 'Pengunjung', 'pengunjung@koperasibagus.com', 'pengunjung', 1, NOW(), NOW());
-    `;
+    inserted.push(user.username);
+  }
 
-    await db.execute(seedQuery);
-    console.log('🌱 Seeder: Default users inserted.');
+  return inserted;
+};
 
-    await db.execute('SET FOREIGN_KEY_CHECKS = 1');
+const resetDatabase = async () => {
+  const client = await pool.connect();
 
-    console.log('✅ Database reset & seed complete!');
-  } catch (err) {
-    console.error('❌ ERROR:', err);
+  try {
+    console.log('🔄 Resetting data only...');
+    await client.query('BEGIN');
+    await client.query(`TRUNCATE TABLE ${TABLES_TO_RESET.join(', ')} RESTART IDENTITY CASCADE`);
+    await client.query('COMMIT');
+
+    console.log('📁 Data deleted and identity sequences reset.');
+
+    const insertedUsers = await seedDefaultUsers();
+    if (insertedUsers.length > 0) {
+      console.log('🌱 Seeded default users:', insertedUsers.join(', '));
+    } else {
+      console.log('🌱 No default users inserted (users already existed).');
+    }
+
+    console.log('✅ Data reset complete.');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('❌ Reset failed:', error);
+    process.exitCode = 1;
   } finally {
-    db.end();
+    client.release();
   }
 };
 
-run();
+resetDatabase();

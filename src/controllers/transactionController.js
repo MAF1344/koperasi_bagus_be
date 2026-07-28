@@ -39,7 +39,7 @@ export const getTransactionById = async (req, res) => {
 // @access  Private (Admin, SuperAdmin)
 export const createTransaction = async (req, res) => {
   try {
-    const {nama_pelanggan, items, total_harga, total_bayar, kembalian} = req.body;
+    const {nama_pelanggan, items, total_harga, total_bayar, kembalian, anggota_id} = req.body;
 
     // Validation
     if (!items || items.length === 0) {
@@ -79,6 +79,7 @@ export const createTransaction = async (req, res) => {
         total_harga: parseFloat(total_harga),
         total_bayar: parseFloat(total_bayar),
         kembalian: parseFloat(kembalian) || 0,
+        anggota_id: anggota_id || null,
       },
       items,
     );

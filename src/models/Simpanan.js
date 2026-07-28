@@ -3,28 +3,29 @@ import {pool} from '../config/database.js';
 class Simpanan {
   // Create new simpanan
   static async create(simpananData) {
-    const {user_id, jenis_simpanan, jumlah, tanggal_simpanan, keterangan} = simpananData;
+    const {anggota_id, user_id, jenis_simpanan, jumlah, tanggal_simpanan, keterangan} = simpananData;
 
     const {rows} = await pool.query(
       `INSERT INTO simpanan 
-        (user_id, jenis_simpanan, jumlah, tanggal_simpanan, keterangan) 
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [user_id, jenis_simpanan, jumlah, tanggal_simpanan, keterangan],
+        (anggota_id, user_id, jenis_simpanan, jumlah, tanggal_simpanan, keterangan) 
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [anggota_id, user_id || null, jenis_simpanan, jumlah, tanggal_simpanan, keterangan],
     );
 
     return rows[0].id;
   }
 
-  // Get all simpanan with user info
+  // Get all simpanan with anggota info
   static async findAll() {
     const {rows} = await pool.query(`
       SELECT 
         s.*,
-        u.nama_lengkap,
-        u.username,
-        u.role
+        a.id as anggota_id,
+        a.nomor_anggota,
+        a.nama_lengkap as anggota_nama,
+        a.status as anggota_status
       FROM simpanan s
-      JOIN users u ON s.user_id = u.id
+      LEFT JOIN anggota a ON s.anggota_id = a.id
       ORDER BY s.created_at DESC
     `);
 
@@ -37,11 +38,12 @@ class Simpanan {
       `
       SELECT 
         s.*,
-        u.nama_lengkap,
-        u.username,
-        u.role
+        a.id as anggota_id,
+        a.nomor_anggota,
+        a.nama_lengkap as anggota_nama,
+        a.status as anggota_status
       FROM simpanan s
-      JOIN users u ON s.user_id = u.id
+      LEFT JOIN anggota a ON s.anggota_id = a.id
       WHERE s.id = $1
     `,
       [id],
@@ -50,17 +52,17 @@ class Simpanan {
     return rows[0];
   }
 
-  // Get simpanan by user
-  static async findByUser(userId) {
+  // Get simpanan by anggota
+  static async findByAnggota(anggotaId) {
     const {rows} = await pool.query(
       `
-      SELECT s.*, u.nama_lengkap, u.username
+      SELECT s.*, a.id as anggota_id, a.nomor_anggota, a.nama_lengkap as anggota_nama, a.status as anggota_status
       FROM simpanan s
-      JOIN users u ON s.user_id = u.id
-      WHERE s.user_id = $1
+      LEFT JOIN anggota a ON s.anggota_id = a.id
+      WHERE s.anggota_id = $1
       ORDER BY s.created_at DESC
     `,
-      [userId],
+      [anggotaId],
     );
 
     return rows;
@@ -70,12 +72,9 @@ class Simpanan {
   static async findByJenis(jenis) {
     const {rows} = await pool.query(
       `
-      SELECT 
-        s.*,
-        u.nama_lengkap,
-        u.username
+      SELECT s.*, a.id as anggota_id, a.nomor_anggota, a.nama_lengkap as anggota_nama, a.status as anggota_status
       FROM simpanan s
-      JOIN users u ON s.user_id = u.id
+      LEFT JOIN anggota a ON s.anggota_id = a.id
       WHERE s.jenis_simpanan = $1
       ORDER BY s.created_at DESC
     `,
@@ -85,18 +84,18 @@ class Simpanan {
     return rows;
   }
 
-  // Calculate total simpanan per user
-  static async calculateTotalByUser(userId) {
+  // Calculate total simpanan per anggota
+  static async calculateTotalByAnggota(anggotaId) {
     const {rows} = await pool.query(
       `
       SELECT 
         jenis_simpanan,
         SUM(jumlah) AS total
       FROM simpanan
-      WHERE user_id = $1
+      WHERE anggota_id = $1
       GROUP BY jenis_simpanan
     `,
-      [userId],
+      [anggotaId],
     );
 
     const totals = {
@@ -130,7 +129,7 @@ class Simpanan {
       wajib: {total: 0, count: 0},
       sukarela: {total: 0, count: 0},
       grand_total: 0,
-      total_transactions: 0,
+      total_transaksi: 0,
     };
 
     rows.forEach((row) => {
@@ -139,7 +138,7 @@ class Simpanan {
         count: parseInt(row.count),
       };
       totals.grand_total += parseFloat(row.total);
-      totals.total_transactions += parseInt(row.count);
+      totals.total_transaksi += parseInt(row.count);
     });
 
     return totals;
@@ -149,7 +148,7 @@ class Simpanan {
   static async getStats() {
     const {rows} = await pool.query(`
       SELECT 
-        COUNT(DISTINCT user_id) AS total_anggota,
+        COUNT(DISTINCT anggota_id) AS total_anggota,
         COUNT(*) AS total_transaksi,
         COALESCE(SUM(jumlah), 0) AS total_simpanan,
         COALESCE(SUM(CASE WHEN jenis_simpanan = 'pokok' THEN jumlah END), 0) AS total_pokok,
@@ -161,8 +160,8 @@ class Simpanan {
     return rows[0];
   }
 
-  // Statistics per user
-  static async getStatsByUser(userId) {
+  // Statistics per anggota
+  static async getStatsByAnggota(anggotaId) {
     const {rows} = await pool.query(
       `
       SELECT 
@@ -172,38 +171,38 @@ class Simpanan {
         COALESCE(SUM(CASE WHEN jenis_simpanan = 'sukarela' THEN jumlah END), 0) AS total_sukarela,
         COUNT(*) AS total_transaksi
       FROM simpanan
-      WHERE user_id = $1
+      WHERE anggota_id = $1
     `,
-      [userId],
+      [anggotaId],
     );
 
     return rows[0];
   }
 
-  // Find by user and type
-  static async findByUserAndType(userId, jenis) {
+  // Find by anggota and type
+  static async findByAnggotaAndType(anggotaId, jenis) {
     const {rows} = await pool.query(
       `
       SELECT *
       FROM simpanan
-      WHERE user_id = $1 AND jenis_simpanan = $2
+      WHERE anggota_id = $1 AND jenis_simpanan = $2
     `,
-      [userId, jenis],
+      [anggotaId, jenis],
     );
 
     return rows;
   }
 
-  // Check if user has pokok
-  static async hasPokok(userId) {
+  // Check if anggota has pokok
+  static async hasPokok(anggotaId) {
     const {rows} = await pool.query(
       `
       SELECT id 
       FROM simpanan 
-      WHERE user_id = $1 AND jenis_simpanan = 'pokok'
+      WHERE anggota_id = $1 AND jenis_simpanan = 'pokok'
       LIMIT 1
     `,
-      [userId],
+      [anggotaId],
     );
 
     return rows.length > 0;
@@ -221,10 +220,12 @@ class Simpanan {
       `
       SELECT 
         s.*,
-        u.nama_lengkap,
-        u.username
+        a.id as anggota_id,
+        a.nomor_anggota,
+        a.nama_lengkap as anggota_nama,
+        a.status as anggota_status
       FROM simpanan s
-      JOIN users u ON s.user_id = u.id
+      LEFT JOIN anggota a ON s.anggota_id = a.id
       ORDER BY s.created_at DESC
       LIMIT $1
     `,
